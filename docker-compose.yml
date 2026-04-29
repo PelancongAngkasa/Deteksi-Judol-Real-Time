@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres_db:
+    image: postgres:15-alpine
+    container_name: judol_postgres
+    environment:
+      POSTGRES_USER: judol_user
+      POSTGRES_PASSWORD: judol_pass
+      POSTGRES_DB: judol_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U judol_user -d judol_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - judol_network
+
+  # FastAPI Backend
+  api_server:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: judol_api
+    environment:
+      DATABASE_URL: postgresql://judol_user:judol_pass@postgres_db:5432/judol_db
+      LOG_LEVEL: INFO
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./list_web.txt:/app/list_web.txt
+      - ./deteksi_judol.py:/app/deteksi_judol.py
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - judol_network
+
+  # Streamlit Frontend
+  streamlit_app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: judol_streamlit
+    ports:
+      - "8501:8501"
+    environment:
+      - STREAMLIT_SERVER_HEADLESS=true
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+      - API_URL=http://api_server:8000
+      - DATABASE_URL=postgresql://judol_user:judol_pass@postgres_db:5432/judol_db
+    volumes:
+      - ./list_web.txt:/app/list_web.txt
+      - ./scan_results:/app/scan_results
+    depends_on:
+      api_server:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - judol_network
+
+networks:
+  judol_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local

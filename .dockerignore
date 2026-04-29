@@ -1,0 +1,16 @@
+.git
+.gitignore
+.dockerignore
+.env
+.venv
+venv/
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.DS_Store
+*.log
+.streamlit
+scan_results
+README.md
+.gitkeep
