@@ -6,7 +6,7 @@ Sistem monitoring enterprise-grade real-time untuk mendeteksi website yang terke
 
 ## 📋 Fitur
 
-- ✅ **Real-Time Dashboard** - Monitoring 24/7 dengan Cortex XDR dark theme
+- ✅ **Real-Time Dashboard** - Monitoring 24/7
 - ✅ **Auto-Scan Scheduler** - Scanning otomatis setiap 10 menit
 - ✅ **REST API** - FastAPI backend dengan Swagger UI documentation
 - ✅ **Database Persistence** - PostgreSQL untuk historical data & analytics
