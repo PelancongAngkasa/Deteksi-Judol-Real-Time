@@ -16,7 +16,8 @@ import logging
 from database import get_db, init_db, engine, SessionLocal
 from database import Website, Scan, Detection, HourlyStatistic, ScanSchedule, DashboardCache
 from schemas import (
-    WebsiteResponse, ScanResponse, DashboardResponse, DashboardStatistics,
+    WebsiteResponse,
+    ScanResponse, DashboardResponse, DashboardStatistics,
     DetectionResponse, HourlyStatisticResponse, ScanStatusResponse,
     ManualScanRequest, ManualScanResponse
 )
@@ -234,15 +235,21 @@ async def get_dashboard(db: Session = Depends(get_db)):
         
         total_websites = db.query(Website).filter(Website.status == "active").count()
         
-        # Total detected today
-        today_detections = db.query(Detection).filter(
-            Detection.created_at >= today_start
-        ).count()
+        # Total detected today (deduplicate per website)
+        today_detections = (
+            db.query(Detection.website_id)
+            .filter(Detection.created_at >= today_start)
+            .distinct()
+            .count()
+        )
         
-        # Total detected this hour
-        hour_detections = db.query(Detection).filter(
-            Detection.created_at >= hour_start
-        ).count()
+        # Total detected this hour (deduplicate per website)
+        hour_detections = (
+            db.query(Detection.website_id)
+            .filter(Detection.created_at >= hour_start)
+            .distinct()
+            .count()
+        )
         
         # Get hourly statistics for last 24 hours
         hourly_stats = []
@@ -262,14 +269,21 @@ async def get_dashboard(db: Session = Depends(get_db)):
                     updated_at=check_hour
                 ))
         
-        # Recent detections (last 5) with website URLs
-        recent = db.query(Detection).order_by(desc(Detection.created_at)).limit(5).all()
+        # Recent detections (deduplicate per website) with website URLs
+        # So a website that's detected in consecutive scans doesn't keep inflating the list.
+        recent_raw = db.query(Detection).order_by(desc(Detection.created_at)).limit(50).all()
         recent_detections = []
-        for det in recent:
+        seen_website_ids = set()
+        for det in recent_raw:
+            if det.website_id in seen_website_ids:
+                continue
             website = db.query(Website).filter(Website.id == det.website_id).first()
             det_response = DetectionResponse.from_orm(det)
             det_response.website_url = website.url if website else f"ID: {det.website_id}"
             recent_detections.append(det_response)
+            seen_website_ids.add(det.website_id)
+            if len(recent_detections) >= 10:
+                break
         
         # Get scan schedule
         schedule = db.query(ScanSchedule).first()
@@ -337,7 +351,13 @@ async def get_scan_status(db: Session = Depends(get_db)):
     
     total_websites = db.query(Website).filter(Website.status == "active").count()
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    total_detected_today = db.query(Detection).filter(Detection.created_at >= today_start).count()
+    # Deduplicate per website so repeated scans don't inflate threats.
+    total_detected_today = (
+        db.query(Detection.website_id)
+        .filter(Detection.created_at >= today_start)
+        .distinct()
+        .count()
+    )
     
     return ScanStatusResponse(
         is_scanning=schedule.is_scanning,
@@ -359,30 +379,35 @@ async def list_websites(db: Session = Depends(get_db)):
     return websites
 
 
-@app.post("/api/v1/websites/upload")
-async def upload_websites(file_path: str = Query(default="list_web.txt"), db: Session = Depends(get_db)):
-    """Upload websites dari file"""
+@app.delete("/api/v1/websites/{website_id}")
+async def delete_website(website_id: int, db: Session = Depends(get_db)):
+    """Hard delete target URL (Website) - removes all related data from database"""
     try:
-        urls = detector.load_urls_from_file(file_path)
-        if not urls:
-            raise HTTPException(status_code=400, detail="File kosong atau tidak ditemukan")
+        website = db.query(Website).filter(Website.id == website_id).first()
+        if not website:
+            raise HTTPException(status_code=404, detail="Website tidak ditemukan")
         
-        added = 0
-        for url in urls:
-            existing = db.query(Website).filter(Website.url == url).first()
-            if not existing:
-                website = Website(url=url, status="active")
-                db.add(website)
-                added += 1
+        # Delete all related detections
+        db.query(Detection).filter(Detection.website_id == website_id).delete()
         
+        # Delete all related scans
+        db.query(Scan).filter(Scan.website_id == website_id).delete()
+        
+        # Delete website
+        db.delete(website)
         db.commit()
+        
+        # Clear cache
+        db.query(DashboardCache).filter(DashboardCache.cache_key == "dashboard_main").delete()
+        db.commit()
+        
+        logger.info(f"Website {website_id} permanently deleted from database")
         return {
             "status": "success",
-            "total_urls": len(urls),
-            "added": added,
-            "message": f"Added {added} new websites"
+            "message": f"Website {website_id} permanently deleted",
         }
     except Exception as e:
+        logger.error(f"Error deleting website: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -448,6 +473,48 @@ async def trigger_manual_scan(request: ManualScanRequest, db: Session = Depends(
                 logger.error(f"Error scanning {url}: {str(e)}")
         
         db.commit()
+
+        # Update hourly statistics from DB (so dashboard timeline/metrics reflect manual scans)
+        now = datetime.utcnow()
+        hour_start = now.replace(minute=0, second=0, microsecond=0)
+        next_hour = hour_start + timedelta(hours=1)
+
+        # Deduplicate per-website so repeated detections in the same hour
+        # don't inflate "threats" counts.
+        total_scanned_in_hour = (
+            db.query(Scan.website_id)
+            .filter(
+                Scan.scan_time >= hour_start,
+                Scan.scan_time < next_hour,
+            )
+            .distinct()
+            .count()
+        )
+
+        total_detected_in_hour = (
+            db.query(Detection.website_id)
+            .filter(
+                Detection.created_at >= hour_start,
+                Detection.created_at < next_hour,
+            )
+            .distinct()
+            .count()
+        )
+
+        hourly_stat = db.query(HourlyStatistic).filter(HourlyStatistic.hour == hour_start).first()
+        if not hourly_stat:
+            hourly_stat = HourlyStatistic(hour=hour_start)
+            db.add(hourly_stat)
+
+        hourly_stat.total_websites_scanned = total_scanned_in_hour
+        hourly_stat.total_detected = total_detected_in_hour
+        hourly_stat.detection_rate = (total_detected_in_hour / total_scanned_in_hour * 100) if total_scanned_in_hour > 0 else 0.0
+        hourly_stat.updated_at = datetime.utcnow()
+        db.add(hourly_stat)
+
+        # Clear dashboard cache so GET /api/v1/dashboard recomputes immediately
+        db.query(DashboardCache).filter(DashboardCache.cache_key == "dashboard_main").delete()
+        db.commit()
         
         return ManualScanResponse(
             status="success",
@@ -476,22 +543,6 @@ async def toggle_auto_scan(enabled: bool, db: Session = Depends(get_db)):
         "auto_scan_enabled": schedule.auto_scan_enabled,
         "message": "Auto-scan " + ("enabled" if enabled else "disabled")
     }
-
-
-# ==================== DETECTIONS ====================
-
-@app.get("/api/v1/detections", response_model=List[DetectionResponse])
-async def get_detections(
-    limit: int = Query(default=10, le=100),
-    hours: int = Query(default=24, le=168),
-    db: Session = Depends(get_db)
-):
-    """Get recent detections"""
-    since = datetime.utcnow() - timedelta(hours=hours)
-    detections = db.query(Detection).filter(
-        Detection.created_at >= since
-    ).order_by(desc(Detection.created_at)).limit(limit).all()
-    return detections
 
 
 # ==================== CACHE & REFRESH ====================

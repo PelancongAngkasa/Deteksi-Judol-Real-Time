@@ -124,6 +124,17 @@ def fetch_scan_status():
     except Exception as e:
         return None
 
+@st.cache_data(ttl=5)
+def fetch_websites():
+    """Fetch all monitored websites (targets) from API"""
+    try:
+        response = requests.get(f"{API_URL}/api/v1/websites", timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        return []
+    except Exception:
+        return []
+
 def trigger_manual_scan(urls):
     """Trigger manual scan"""
     try:
@@ -473,6 +484,138 @@ else:
                 if st.button("✕ Cancel", use_container_width=True):
                     st.session_state.show_manual_scan = False
                     st.rerun()
+            
+            # URL Targets CRUD
+        with st.expander("🎯 URL Targets (CRUD)", expanded=False):
+            websites = fetch_websites()
+            if not websites:
+                st.info("Belum ada URL yang terdaftar.")
+            else:
+                df_sites = pd.DataFrame(websites)
+                cols = [c for c in ['id', 'url', 'page_title', 'status', 'last_scan_time', 'created_at'] if c in df_sites.columns]
+                st.dataframe(df_sites[cols], use_container_width=True, height=260)
+
+                site_by_id = {s['id']: s for s in websites if 'id' in s}
+                site_ids = list(site_by_id.keys())
+                site_ids.sort()
+
+                # Add
+                with st.form("add_website_form", clear_on_submit=True):
+                    st.markdown("### Tambah URL")
+                    new_url = st.text_input("URL baru", placeholder="https://example.com")
+                    new_page_title = st.text_input("Page Title (opsional)")
+                    new_status = st.selectbox("Status", ["active", "inactive", "removed"], index=0)
+                    add_submit = st.form_submit_button("Tambah URL")
+
+                    if add_submit:
+                        if not new_url.strip():
+                            st.warning("URL wajib diisi.")
+                            st.stop()
+
+                        payload = {
+                            "url": new_url.strip(),
+                            "page_title": new_page_title.strip() or None,
+                            "status": new_status,
+                        }
+                        try:
+                            resp = requests.post(f"{API_URL}/api/v1/websites", json=payload, timeout=15)
+                            if resp.status_code == 200:
+                                st.success("URL berhasil ditambahkan.")
+                                st.cache_data.clear()
+                                st.rerun()
+                            else:
+                                detail = None
+                                try:
+                                    detail = resp.json().get("detail")
+                                except Exception:
+                                    pass
+                                st.error(detail or f"Failed: {resp.text}")
+                        except Exception as e:
+                            st.error(f"Request error: {str(e)}")
+
+                # Edit
+                with st.form("edit_website_form"):
+                    st.markdown("### Edit URL")
+                    selected_edit_id = st.selectbox(
+                        "Pilih target",
+                        options=site_ids,
+                        format_func=lambda sid: f"{sid} - {site_by_id[sid].get('url', '')}",
+                    )
+                    selected_site = site_by_id[selected_edit_id]
+
+                    edit_url = st.text_input("URL", value=selected_site.get('url', ''), key=f"edit_url_{selected_edit_id}")
+                    edit_page_title = st.text_input(
+                        "Page Title",
+                        value=selected_site.get('page_title') or '',
+                        key=f"edit_title_{selected_edit_id}",
+                    )
+                    status_options = ["active", "inactive"]
+                    current_status = selected_site.get("status") or "active"
+                    edit_status_index = status_options.index(current_status) if current_status in status_options else 0
+                    edit_status = st.selectbox(
+                        "Status",
+                        options=status_options,
+                        index=edit_status_index,
+                        key=f"edit_status_{selected_edit_id}",
+                    )
+
+                    edit_submit = st.form_submit_button("Simpan perubahan")
+                    if edit_submit:
+                        payload = {
+                            "url": edit_url.strip(),
+                            "page_title": edit_page_title.strip() or None,
+                            "status": edit_status,
+                        }
+                        if not payload["url"]:
+                            st.warning("URL tidak boleh kosong.")
+                            st.stop()
+
+                        try:
+                            resp = requests.put(
+                                f"{API_URL}/api/v1/websites/{selected_edit_id}",
+                                json=payload,
+                                timeout=15,
+                            )
+                            if resp.status_code == 200:
+                                st.success("URL berhasil diupdate.")
+                                st.cache_data.clear()
+                                st.rerun()
+                            else:
+                                detail = None
+                                try:
+                                    detail = resp.json().get("detail")
+                                except Exception:
+                                    pass
+                                st.error(detail or f"Failed: {resp.text}")
+                        except Exception as e:
+                            st.error(f"Request error: {str(e)}")
+
+                # Delete (soft)
+                with st.form("delete_website_form"):
+                    st.markdown("### Remove Website")
+                    selected_del_id = st.selectbox(
+                        "Pilih target",
+                        options=site_ids,
+                        format_func=lambda sid: f"{sid} - {site_by_id[sid].get('url', '')}",
+                        key="del_target_select",
+                    )
+                    confirm = st.checkbox("Konfirmasi Delete")
+                    del_submit = st.form_submit_button("Remove")
+
+                    if del_submit:
+                        if not confirm:
+                            st.warning("Centang konfirmasi dulu.")
+                            st.stop()
+                        try:
+                            resp = requests.delete(f"{API_URL}/api/v1/websites/{selected_del_id}", timeout=15)
+                            if resp.status_code == 200:
+                                st.success("Target berhasil di-remove.")
+                                st.cache_data.clear()
+                                st.rerun()
+                            else:
+                                st.error(f"Failed: {resp.text}")
+                        except Exception as e:
+                            st.error(f"Request error: {str(e)}")
 
 st.divider()
 st.caption("🔐 Deteksi Judol v0.2")

@@ -15,6 +15,18 @@ class WebsiteCreate(WebsiteBase):
     pass
 
 
+class WebsiteCreateRequest(WebsiteBase):
+    """Request body untuk membuat target URL baru."""
+    status: str = "active"  # active, inactive, removed
+
+
+class WebsiteUpdateRequest(BaseModel):
+    """Request body untuk update target URL yang sudah ada."""
+    url: Optional[str] = None
+    page_title: Optional[str] = None
+    status: Optional[str] = None  # active, inactive, removed
+
+
 class WebsiteResponse(WebsiteBase):
     id: int
     status: str
