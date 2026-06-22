@@ -1,12 +1,12 @@
 # 🛡️ Deteksi Defacement Judol Online - Real-Time Enterprise Dashboard
 
-Sistem monitoring enterprise-grade real-time untuk mendeteksi website yang terkena injeksi konten judi online (judol), dengan dashboard web modern, database persistence, dan REST API.
+Sistem monitoring enterprise-grade real-time untuk mendeteksi website yang terkena injeksi konten judi online (judol), dengan dashboard Cortex XDR-style, database persistence, dan REST API.
 
 **Built with**: Python, FastAPI, Streamlit, PostgreSQL, SQLAlchemy, APScheduler, Docker
 
 ## 📋 Fitur
 
-- ✅ **Real-Time Dashboard** - Monitoring 24/7 dengan dark theme modern
+- ✅ **Real-Time Dashboard** - Monitoring 24/7 dengan Cortex XDR dark theme
 - ✅ **Auto-Scan Scheduler** - Scanning otomatis setiap 10 menit
 - ✅ **REST API** - FastAPI backend dengan Swagger UI documentation
 - ✅ **Database Persistence** - PostgreSQL untuk historical data & analytics
