@@ -30,6 +30,7 @@ class WebsiteUpdateRequest(BaseModel):
 class WebsiteResponse(WebsiteBase):
     id: int
     status: str
+    is_currently_detected: bool = False
     last_scan_time: Optional[datetime] = None
     created_at: datetime
 
@@ -104,7 +105,7 @@ class DashboardStatistics(BaseModel):
 
 class DashboardResponse(BaseModel):
     status: str  # "success" atau "error"
-    data: DashboardStatistics
+    data: Optional[DashboardStatistics] = None
     message: Optional[str] = None
 
 

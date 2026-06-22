@@ -26,6 +26,7 @@ class Website(Base):
     page_title = Column(String, nullable=True)
     last_scan_time = Column(DateTime, nullable=True)
     status = Column(String, default="active")  # active, inactive, removed
+    is_currently_detected = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
@@ -121,4 +122,19 @@ def get_db():
 def init_db():
     """Inisialisasi database - buat semua tables"""
     Base.metadata.create_all(bind=engine)
+
+    # Migrasi kolom baru agar tidak perlu drop-recreate database lama
+    from sqlalchemy import text
+    migrations = [
+        "ALTER TABLE websites ADD COLUMN IF NOT EXISTS is_currently_detected BOOLEAN DEFAULT FALSE",
+    ]
+    with engine.connect() as conn:
+        for sql in migrations:
+            try:
+                conn.execute(text(sql))
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                print(f"Migration skipped (may already exist): {e}")
+
     print("Database initialized successfully!")

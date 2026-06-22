@@ -6,11 +6,8 @@ Enterprise-grade security monitoring dashboard v2.0
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
 import requests
-import time
-from datetime import datetime, timedelta
-import json
+from datetime import datetime
 import os
 
 # ==================== PAGE CONFIG ====================
@@ -75,31 +72,6 @@ st.markdown("""
 # ==================== SESSION STATE ====================
 if 'last_refresh' not in st.session_state:
     st.session_state.last_refresh = datetime.now()
-
-if 'initialized' not in st.session_state:
-    st.session_state.initialized = False
-
-# ==================== AUTO-LOAD ON STARTUP ====================
-@st.cache_resource
-def initialize_app():
-    """Initialize app - load websites from list_web.txt on first load with retry"""
-    max_retries = 5
-    for attempt in range(max_retries):
-        try:
-            response = requests.post(f"{API_URL}/api/v1/websites/refresh", timeout=10)
-            if response.status_code == 200:
-                result = response.json()
-                return True, result.get('total_urls', 0), result.get('added', 0)
-        except Exception as e:
-            if attempt < max_retries - 1:
-                time.sleep(2 ** attempt)  # Exponential backoff: 1s, 2s, 4s, 8s, 16s
-                continue
-    return False, 0, 0
-
-# Auto-load on startup if not initialized yet
-if not st.session_state.initialized:
-    success, total, added = initialize_app()
-    st.session_state.initialized = True
 
 # ==================== API FUNCTIONS ====================
 @st.cache_data(ttl=5)
@@ -198,8 +170,20 @@ with st.sidebar:
                 st.rerun()
         
         with col2:
-            if st.button("📁 Manual Scan", use_container_width=True):
-                st.session_state.show_manual_scan = True
+            if st.button("🔍 Scan Semua", use_container_width=True):
+                ws = fetch_websites()
+                active_urls = [w['url'] for w in ws if w.get('status') == 'active']
+                if active_urls:
+                    with st.spinner(f"Scanning {len(active_urls)} website..."):
+                        result = trigger_manual_scan(active_urls)
+                    if result.get('status') == 'success':
+                        st.success(result.get('message', 'Selesai'))
+                        st.cache_data.clear()
+                        st.rerun()
+                    else:
+                        st.error("Scan gagal")
+                else:
+                    st.warning("Tidak ada website aktif")
     
     st.divider()
     
@@ -437,55 +421,55 @@ else:
     # ========== TAB 4: SETTINGS ==========
     with tab4:
         st.subheader("⚙️ System Settings")
-        
+
         col1, col2 = st.columns(2)
-        
+
         with col1:
             st.markdown("### Auto-Scan")
-            if st.button("Toggle Auto-Scan", use_container_width=True):
-                current = data.get('auto_scan_enabled', False)
-                toggle_auto_scan(not current)
+            current_auto = data.get('auto_scan_enabled', False)
+            btn_auto_label = "⏸️ Nonaktifkan Auto-Scan" if current_auto else "▶️ Aktifkan Auto-Scan"
+            if st.button(btn_auto_label, use_container_width=True):
+                toggle_auto_scan(not current_auto)
                 st.cache_data.clear()
                 st.rerun()
-        
+
         with col2:
             st.markdown("### Manual Scan")
-            if st.button("🔍 Trigger Manual Scan", use_container_width=True):
-                st.session_state.show_manual_scan = True
-        
+            if st.button("🔍 Scan Semua Website", use_container_width=True):
+                all_websites = fetch_websites()
+                active_urls = [w['url'] for w in all_websites if w.get('status') == 'active']
+                if active_urls:
+                    with st.spinner(f"⏳ Scanning {len(active_urls)} website..."):
+                        result = trigger_manual_scan(active_urls)
+                    if result.get('status') == 'success':
+                        st.success(result.get('message', 'Scan selesai'))
+                        st.cache_data.clear()
+                    else:
+                        st.error(f"Gagal: {result.get('message', 'Unknown')}")
+                else:
+                    st.warning("Tidak ada website aktif untuk di-scan")
+
         st.divider()
-        
-        if 'show_manual_scan' in st.session_state and st.session_state.show_manual_scan:
-            st.markdown("### Start Manual Scan")
-            
+
+        with st.expander("🔍 Scan URL Custom", expanded=False):
             manual_urls = st.text_area(
-                "Enter URLs (one per line):",
+                "Masukkan URL (satu per baris):",
                 height=150,
                 placeholder="https://example.com\nhttps://example2.com"
             )
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("▶️ Start Scan", use_container_width=True):
-                    if manual_urls.strip():
-                        urls_list = [url.strip() for url in manual_urls.split('\n') if url.strip()]
-                        with st.spinner("⏳ Scanning..."):
-                            result = trigger_manual_scan(urls_list)
-                            if result.get('status') == 'success':
-                                st.success(result.get('message', 'Scan complete'))
-                                st.cache_data.clear()
-                                st.rerun()
-                            else:
-                                st.error(f"Error: {result.get('message', 'Unknown')}")
+            if st.button("▶️ Mulai Scan", use_container_width=True):
+                if manual_urls.strip():
+                    urls_list = [u.strip() for u in manual_urls.split('\n') if u.strip()]
+                    with st.spinner("⏳ Scanning..."):
+                        result = trigger_manual_scan(urls_list)
+                    if result.get('status') == 'success':
+                        st.success(result.get('message', 'Scan selesai'))
+                        st.cache_data.clear()
                     else:
-                        st.warning("Enter at least 1 URL")
-            
-            with col2:
-                if st.button("✕ Cancel", use_container_width=True):
-                    st.session_state.show_manual_scan = False
-                    st.rerun()
-            
-            # URL Targets CRUD
+                        st.error(f"Gagal: {result.get('message', 'Unknown')}")
+                else:
+                    st.warning("Masukkan minimal 1 URL")
+
         with st.expander("🎯 URL Targets (CRUD)", expanded=False):
             websites = fetch_websites()
             if not websites:

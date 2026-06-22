@@ -20,6 +20,7 @@ COPY deteksi_judol.py .
 COPY database.py .
 COPY schemas.py .
 COPY api.py .
+COPY notifications.py .
 COPY list_web.txt .
 
 # Expose port

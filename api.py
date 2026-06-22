@@ -1,27 +1,30 @@
 """
 FastAPI backend untuk sistem deteksi judol dengan auto-scan
 """
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Query
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, and_
+from sqlalchemy import desc
 from datetime import datetime, timedelta
-import asyncio
 import time
 import json
 from apscheduler.schedulers.background import BackgroundScheduler
-from typing import List, Optional
+from typing import List
 import logging
+from dotenv import load_dotenv
 
-from database import get_db, init_db, engine, SessionLocal
+load_dotenv()
+
+from database import get_db, init_db, SessionLocal
 from database import Website, Scan, Detection, HourlyStatistic, ScanSchedule, DashboardCache
 from schemas import (
-    WebsiteResponse,
-    ScanResponse, DashboardResponse, DashboardStatistics,
+    WebsiteResponse, WebsiteCreateRequest, WebsiteUpdateRequest,
+    DashboardResponse, DashboardStatistics,
     DetectionResponse, HourlyStatisticResponse, ScanStatusResponse,
     ManualScanRequest, ManualScanResponse
 )
 from deteksi_judol import DeteksiJudol
+from notifications import notification_manager
 
 # Logging
 logging.basicConfig(level=logging.INFO)
@@ -148,9 +151,10 @@ def auto_scan_task():
                 db.flush()
                 
                 # Create detection record if found
+                was_detected = website.is_currently_detected
                 if result.get('detected'):
                     total_detected += 1
-                    severity = "high" if result.get('keywords_count', 0) > 3 else "medium"
+                    severity = "HIGH" if result.get('keywords_count', 0) > 3 else "MEDIUM"
                     detection = Detection(
                         scan_id=scan.id,
                         website_id=website.id,
@@ -160,7 +164,22 @@ def auto_scan_task():
                         severity=severity
                     )
                     db.add(detection)
-                
+
+                    # Kirim alert hanya saat pertama kali terdeteksi (status: bersih → terinfeksi)
+                    if not was_detected:
+                        notification_manager.send_threat_detection(
+                            url=website.url,
+                            keywords=result.get('keywords_found', []),
+                            severity=severity,
+                            suspect_urls=result.get('suspect_urls', [])
+                        )
+                    website.is_currently_detected = True
+                else:
+                    # Kirim notifikasi pulih jika sebelumnya terdeteksi (status: terinfeksi → bersih)
+                    if was_detected:
+                        notification_manager.send_threat_resolved(url=website.url)
+                    website.is_currently_detected = False
+
                 # Update website last scan time
                 website.last_scan_time = datetime.utcnow()
                 db.add(website)
@@ -186,12 +205,18 @@ def auto_scan_task():
         
     except Exception as e:
         logger.error(f"Error in auto_scan_task: {str(e)}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
     finally:
-        # Mark as not scanning
-        schedule = db.query(ScanSchedule).first()
-        if schedule:
-            schedule.is_scanning = False
-            db.commit()
+        try:
+            schedule = db.query(ScanSchedule).first()
+            if schedule:
+                schedule.is_scanning = False
+                db.commit()
+        except Exception as e:
+            logger.error(f"Error resetting scan status: {str(e)}")
         db.close()
 
 
@@ -379,6 +404,70 @@ async def list_websites(db: Session = Depends(get_db)):
     return websites
 
 
+@app.post("/api/v1/websites", response_model=WebsiteResponse)
+async def create_website(request: WebsiteCreateRequest, db: Session = Depends(get_db)):
+    """Tambah target URL baru"""
+    try:
+        existing = db.query(Website).filter(Website.url == request.url).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="URL sudah terdaftar")
+
+        website = Website(
+            url=request.url,
+            page_title=request.page_title,
+            status=request.status
+        )
+        db.add(website)
+        db.commit()
+        db.refresh(website)
+
+        db.query(DashboardCache).filter(DashboardCache.cache_key == "dashboard_main").delete()
+        db.commit()
+
+        logger.info(f"Website created: {website.url}")
+        return website
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating website: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/v1/websites/{website_id}", response_model=WebsiteResponse)
+async def update_website(website_id: int, request: WebsiteUpdateRequest, db: Session = Depends(get_db)):
+    """Update target URL yang sudah ada"""
+    try:
+        website = db.query(Website).filter(Website.id == website_id).first()
+        if not website:
+            raise HTTPException(status_code=404, detail="Website tidak ditemukan")
+
+        if request.url is not None:
+            conflict = db.query(Website).filter(Website.url == request.url, Website.id != website_id).first()
+            if conflict:
+                raise HTTPException(status_code=400, detail="URL sudah digunakan website lain")
+            website.url = request.url
+
+        if request.page_title is not None:
+            website.page_title = request.page_title
+
+        if request.status is not None:
+            website.status = request.status
+
+        db.commit()
+        db.refresh(website)
+
+        db.query(DashboardCache).filter(DashboardCache.cache_key == "dashboard_main").delete()
+        db.commit()
+
+        logger.info(f"Website {website_id} updated")
+        return website
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating website: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.delete("/api/v1/websites/{website_id}")
 async def delete_website(website_id: int, db: Session = Depends(get_db)):
     """Hard delete target URL (Website) - removes all related data from database"""
@@ -455,18 +544,35 @@ async def trigger_manual_scan(request: ManualScanRequest, db: Session = Depends(
                 db.add(scan)
                 db.flush()
                 
+                was_detected = website.is_currently_detected
                 if result.get('detected'):
                     detected_count += 1
+                    severity = "HIGH" if result.get('keywords_count', 0) > 3 else "MEDIUM"
                     detection = Detection(
                         scan_id=scan.id,
                         website_id=website.id,
                         keywords_found=result.get('keywords_found', []),
                         suspect_urls=result.get('suspect_urls', []),
                         page_title=result.get('page_title'),
-                        severity="high" if result.get('keywords_count', 0) > 3 else "medium"
+                        severity=severity
                     )
                     db.add(detection)
-                
+
+                    # Kirim alert hanya saat pertama kali terdeteksi (status: bersih → terinfeksi)
+                    if not was_detected:
+                        notification_manager.send_threat_detection(
+                            url=website.url,
+                            keywords=result.get('keywords_found', []),
+                            severity=severity,
+                            suspect_urls=result.get('suspect_urls', [])
+                        )
+                    website.is_currently_detected = True
+                else:
+                    # Kirim notifikasi pulih jika sebelumnya terdeteksi (status: terinfeksi → bersih)
+                    if was_detected:
+                        notification_manager.send_threat_resolved(url=website.url)
+                    website.is_currently_detected = False
+
                 website.last_scan_time = datetime.utcnow()
                 
             except Exception as e:
@@ -557,111 +663,6 @@ async def clear_cache(db: Session = Depends(get_db)):
         return {"status": "success", "message": "Cache cleared"}
     except Exception as e:
         logger.error(f"Error clearing cache: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/v1/websites/refresh")
-async def refresh_websites(db: Session = Depends(get_db)):
-    """Refresh websites dari list_web.txt, clear cache, dan trigger scan langsung"""
-    try:
-        # Load URLs dari file terbaru
-        urls = detector.load_urls_from_file("list_web.txt")
-        if not urls:
-            raise HTTPException(status_code=400, detail="File kosong atau tidak ditemukan")
-        
-        # Clear cache
-        db.query(DashboardCache).delete()
-        
-        # Count current websites
-        current_count = db.query(Website).count()
-        
-        # Add new URLs
-        added = 0
-        new_urls = []
-        for url in urls:
-            existing = db.query(Website).filter(Website.url == url).first()
-            if not existing:
-                website = Website(url=url, status="active")
-                db.add(website)
-                new_urls.append(url)
-                added += 1
-        
-        db.commit()
-        new_count = db.query(Website).count()
-        
-        # Trigger immediate scan untuk semua URL (tidak hanya yang baru)
-        logger.info(f"Websites refreshed: {current_count} -> {new_count} (added {added}). Starting immediate scan...")
-        scan_hour = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
-        hourly_stat = db.query(HourlyStatistic).filter(HourlyStatistic.hour == scan_hour).first()
-        
-        if not hourly_stat:
-            hourly_stat = HourlyStatistic(hour=scan_hour)
-            db.add(hourly_stat)
-        
-        total_detected = 0
-        scanned_count = 0
-        
-        # Scan all active websites
-        for url in urls:
-            try:
-                start_time = time.time()
-                result = detector.scan_website(url)
-                scan_duration = time.time() - start_time
-                
-                website = db.query(Website).filter(Website.url == url).first()
-                if website:
-                    # Create scan record
-                    scan = Scan(
-                        website_id=website.id,
-                        scan_time=datetime.utcnow(),
-                        status_code=result.get('status_code'),
-                        detected=result.get('detected', False),
-                        keywords_count=result.get('keywords_count', 0),
-                        error=result.get('error'),
-                        scan_duration=scan_duration
-                    )
-                    db.add(scan)
-                    db.flush()
-                    
-                    # Create detection record if detected
-                    if result.get('detected'):
-                        detection = Detection(
-                            scan_id=scan.id,
-                            website_id=website.id,
-                            keywords_found=result.get('keywords_found', []),
-                            suspect_urls=result.get('suspect_urls', []),
-                            page_title=result.get('page_title'),
-                            severity="high" if result.get('keywords_count', 0) > 5 else "medium",
-                            created_at=datetime.utcnow()
-                        )
-                        db.add(detection)
-                        total_detected += 1
-                    
-                    scanned_count += 1
-            except Exception as e:
-                logger.error(f"Error scanning {url}: {e}")
-                continue
-        
-        # Update hourly stats
-        hourly_stat.total_websites_scanned = scanned_count
-        hourly_stat.total_detected = total_detected
-        if scanned_count > 0:
-            hourly_stat.detection_rate = (total_detected / scanned_count) * 100
-        
-        db.commit()
-        
-        logger.info(f"Immediate scan completed: {scanned_count} scanned, {total_detected} detected")
-        return {
-            "status": "success",
-            "total_urls": len(urls),
-            "added": added,
-            "current_total": new_count,
-            "scanned": scanned_count,
-            "detected": total_detected,
-            "message": f"Refreshed from list_web.txt: added {added} new websites, scanned {scanned_count}, detected {total_detected} threats"
-        }
-    except Exception as e:
-        logger.error(f"Error refreshing websites: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

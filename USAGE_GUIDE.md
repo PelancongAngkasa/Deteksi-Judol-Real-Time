@@ -31,10 +31,6 @@ Dashboard terbagi menjadi 3 bagian utama:
 - **🟢 Auto ON / 🔴 Auto OFF** - Toggle automatic scanning (setiap 10 menit)
 - **📁 Manual Scan** - Trigger scan manual untuk URL tertentu
 
-**Upload Website URLs**
-- **📤 Load dari list_web.txt** - Load URLs dari file ke database
-- **🔄 Refresh & Clear Cache** - Refresh URLs dan clear semua cache
-
 **Status Sistem**
 - **Websites** - Total website yang di-monitor
 - **Threats** - Total threats terdeteksi
@@ -82,8 +78,13 @@ Dashboard terbagi menjadi 3 bagian utama:
 
 4. **⚙️ Settings**
    - Auto-scan toggle
+   - **Website Management** - CRUD untuk URLs
+     - Add new website
+     - Edit existing URL
+     - Delete website
+     - View all websites
    - Manual scan form
-   - Paste URLs untuk scan manual
+   - Paste URLs untuk quick scan
 
 ---
 
@@ -98,24 +99,35 @@ Dashboard terbagi menjadi 3 bagian utama:
 
 #### **2. Menambah URL untuk Monitoring**
 
-**Metode A: Via list_web.txt + Refresh Button**
+**Metode A: Manual Scan (Fastest)**
 ```
-1. Edit list_web.txt di root project (satu URL per baris)
-2. Di sidebar, klik "🔄 Refresh & Clear Cache"
-3. Sistem akan:
-   - Load URLs dari file
-   - Add ke database
-   - Scan semua URLs
-   - Update dashboard
+1. Sidebar → "📁 Manual Scan"
+2. Paste URL(s):
+   https://example.com
+   https://another-site.org
+3. Klik "Scan"
+4. Hasil muncul di "Recent Threats"
 ```
 
-**Metode B: Manual Scan**
+**Metode B: CRUD di Settings Tab (Recommended untuk bulk)**
 ```
-1. Klik "⚙️ Settings" tab
-2. Paste URL(s) di textarea
-3. Klik "📁 Manual Scan"
-4. Tunggu hasil scan muncul
-5. Lihat results di "🚨 Recent Threats"
+1. Tab "⚙️ Settings"
+2. Website Management section
+3. Add new website:
+   - URL input field
+   - Click "Add"
+4. Or Edit/Delete existing URLs
+5. (Optional) Trigger manual scan
+```
+
+**Metode C: Bulk Add via Manual Scan**
+```
+1. Sidebar → "📁 Manual Scan"
+2. Paste multiple URLs:
+   https://url1.com
+   https://url2.com
+   https://url3.com
+3. Click "Scan"
 ```
 
 #### **3. Trigger Auto-Scan**
@@ -360,41 +372,79 @@ curl -X POST http://localhost:8000/api/v1/cache/clear
 
 ## 📝 Mengelola URL Website
 
-### Metode 1: Via list_web.txt (Recommended)
+### Metode 1: Manual Scan via Dashboard (⭐ Recommended)
 
-**File Format:**
-```
-https://www.pertanian.go.id/
-https://csirt.pertanian.go.id/
-https://example.com/
-https://another-site.org/
-```
-
-**Cara Menggunakan:**
-1. Edit `list_web.txt` di root project
-2. Satu URL per baris
-3. Save file
-4. Di dashboard, klik "🔄 Refresh & Clear Cache"
-5. Sistem akan auto-load ke database dan scan semua URLs
-
----
-
-### Metode 2: Via Dashboard Manual Scan
-
-**Langkah-Langkah:**
-1. Tab "⚙️ Settings"
-2. Copy-paste URL(s) di textarea:
+**Cara Tercepat - Scan Single atau Multiple URLs:**
+1. Dashboard → Sidebar → "📁 Manual Scan"
+2. Paste URL(s):
    ```
    https://example1.com
    https://example2.com
+   https://another-site.org
    ```
-3. Klik "📁 Manual Scan"
-4. Tunggu hasil scan
-5. Lihat results di tab "🚨 Recent Threats"
+3. Klik "Scan"
+4. Tunggu ~10-30 detik
+5. Lihat results di "🚨 Recent Threats" tab
+
+**Kelebihan:**
+- Instant scan, tidak perlu save ke file
+- Support multiple URLs in one scan
+- Hasil langsung visible di Recent Threats
+- Setiap hasil tercatat di database otomatis
 
 ---
 
-### Metode 3: Via REST API
+### Metode 2: CRUD Management via Settings Tab
+
+**Add Website (untuk long-term monitoring):**
+1. Tab "⚙️ Settings"
+2. Website Management section → Input URL field
+3. Ketik URL: `https://example.com`
+4. Klik "Add Website"
+5. (Optional) Trigger manual scan dari sidebar
+
+**View All Websites:**
+```
+Settings tab → Website List
+- Shows: URL, last scan time, status
+- Actions: Edit, Delete, Manual Scan
+```
+
+**Delete Website:**
+```
+Settings tab → Website List
+- Klik "Delete" button di website yang ingin dihapus
+- Sistem akan cascade-delete: deletions, scan data, detections
+```
+
+**Edit Website:**
+```
+Settings tab → Website List
+- Klik "Edit" button
+- Update URL jika perlu
+- Save changes
+```
+
+---
+
+### Metode 3: Bulk Add via Manual Scan
+
+**Untuk Banyak URLs Sekaligus:**
+1. Dashboard → Sidebar → "📁 Manual Scan"
+2. Paste banyak URLs sekaligus (separated by newline):
+   ```
+   https://url1.com
+   https://url2.com
+   https://url3.com
+   https://url4.com
+   https://url5.com
+   ```
+3. Klik "Scan"
+4. Semua URLs akan di-scan dan hasil tercatat
+
+---
+
+### Metode 4: Via REST API (Programmatic)
 
 **Add & Scan URLs:**
 ```bash
@@ -406,13 +456,24 @@ curl -X POST http://localhost:8000/api/v1/scan/manual \
   }'
 ```
 
-**Delete URL:**
+**Get All Websites:**
 ```bash
-# Get website ID first
-curl http://localhost:8000/api/v1/websites | grep -i example
+curl http://localhost:8000/api/v1/websites
+```
 
-# Delete by ID
+**Get Website by ID:**
+```bash
+curl http://localhost:8000/api/v1/websites/5
+```
+
+**Delete Website (Hard Delete - cascades all related data):**
+```bash
 curl -X DELETE http://localhost:8000/api/v1/websites/5
+```
+
+**Trigger Immediate Scan:**
+```bash
+curl -X POST http://localhost:8000/api/v1/websites/refresh
 ```
 
 ---

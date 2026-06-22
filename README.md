@@ -1,12 +1,12 @@
 # 🛡️ Deteksi Defacement Judol Online - Real-Time Enterprise Dashboard
 
-Sistem monitoring enterprise-grade real-time untuk mendeteksi website yang terkena injeksi konten judi online (judol), dengan dashboard Cortex XDR-style, database persistence, dan REST API.
+Sistem monitoring enterprise-grade real-time untuk mendeteksi website yang terkena injeksi konten judi online (judol), dengan dashboard web modern, database persistence, dan REST API.
 
 **Built with**: Python, FastAPI, Streamlit, PostgreSQL, SQLAlchemy, APScheduler, Docker
 
 ## 📋 Fitur
 
-- ✅ **Real-Time Dashboard** - Monitoring 24/7 dengan Cortex XDR dark theme
+- ✅ **Real-Time Dashboard** - Monitoring 24/7 dengan dark theme modern
 - ✅ **Auto-Scan Scheduler** - Scanning otomatis setiap 10 menit
 - ✅ **REST API** - FastAPI backend dengan Swagger UI documentation
 - ✅ **Database Persistence** - PostgreSQL untuk historical data & analytics
@@ -185,30 +185,35 @@ JUDOL_KEYWORDS = [
 
 ### Menambah URLs untuk Scanning
 
-**Metode 1: Via Dashboard (Recommended)**
+**Metode 1: Manual Scan (Recommended) ⭐**
 1. Buka http://localhost:8501
-2. Klik "🔄 Refresh & Clear Cache" di sidebar
-3. Sistem akan auto-load dari `list_web.txt` ke database
-4. URLs akan langsung di-scan
+2. Klik "📁 Manual Scan" di sidebar
+3. Masukkan URL(s) yang ingin di-scan
+4. Hasil scan langsung ditampilkan
 
-**Metode 2: Edit list_web.txt**
-```
-https://www.pertanian.go.id/
-https://csirt.pertanian.go.id/
-https://example.com/
-```
-
-Satu URL per baris. Sistem akan auto-load pada startup.
+**Metode 2: CRUD di Settings Tab**
+1. Klik tab "Settings" di dashboard
+2. Sub-section "Website Management"
+3. Tambah URL baru, edit, atau hapus URL existing
+4. Pilih untuk auto-scan atau manual trigger
 
 **Metode 3: Via REST API**
 ```bash
-# Refresh & scan dari list_web.txt
-curl -X POST http://localhost:8000/api/v1/websites/refresh
-
 # Manual scan specific URLs
 curl -X POST http://localhost:8000/api/v1/scan/manual \
   -H "Content-Type: application/json" \
   -d '{"urls": ["https://example.com"], "priority": "urgent"}'
+
+# Add URL via API
+curl -X POST http://localhost:8000/api/v1/websites \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com", "status": "active"}'
+
+# Get all URLs
+curl http://localhost:8000/api/v1/websites
+
+# Delete URL
+curl -X DELETE http://localhost:8000/api/v1/websites/1
 ```
 
 ### Environment Variables

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # PostgreSQL Database
   postgres_db:
@@ -31,6 +29,8 @@ services:
     environment:
       DATABASE_URL: postgresql://judol_user:judol_pass@postgres_db:5432/judol_db
       LOG_LEVEL: INFO
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
     ports:
       - "8000:8000"
     volumes:

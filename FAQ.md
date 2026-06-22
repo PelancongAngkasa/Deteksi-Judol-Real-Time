@@ -11,8 +11,9 @@ Jawaban untuk pertanyaan yang sering diajukan tentang Deteksi Judol.
 **A:** Kemungkinan penyebab:
 
 1. **Belum ada URLs yang di-scan**
-   - Edit `list_web.txt`
-   - Klik "🔄 Refresh & Clear Cache"
+   - Dashboard → Sidebar → "📁 Manual Scan"
+   - Paste URL(s) dan klik "Scan"
+   - Atau: Settings tab → Add Website
    - Tunggu 30 detik
 
 2. **API tidak terkoneksi**

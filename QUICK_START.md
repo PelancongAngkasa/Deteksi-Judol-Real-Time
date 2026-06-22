@@ -27,18 +27,29 @@ Akan melihat:
 
 ## 📝 Step 3: Add URLs (1 menit)
 
-### Cara Tercepat:
+### Cara Tercepat - Manual Scan:
 
-1. **Edit file**: `list_web.txt`
+1. **Di Dashboard Sidebar**: Klik **"📁 Manual Scan"**
+
+2. **Input URLs**:
    ```
    https://www.pertanian.go.id/
    https://csirt.pertanian.go.id/
    https://example.com/
    ```
 
-2. **Di Dashboard Sidebar**: Klik **"🔄 Refresh & Clear Cache"**
+3. **Tunggu**: Sistem akan scan (~10-30 detik)
 
-3. **Tunggu**: Sistem akan scan semua URLs (~10-30 detik)
+### Atau gunakan CRUD Settings:
+
+1. **Di Dashboard**: Tab **"⚙️ Settings"**
+
+2. **Website Management** section:
+   - Input URL baru
+   - Klik "Add Website"
+   - (Optional) Manual trigger scan
+
+3. **View results** di "Recent Threats"
 
 ---
 
@@ -60,16 +71,21 @@ Akan melihat:
 
 ### ➕ Add More URLs
 
-**Di Dashboard → Sidebar → "📤 Load dari list_web.txt"**
-- Edit list_web.txt
-- Klik button
+**Metode 1: Manual Scan (Fastest)**
+- Dashboard → Sidebar → "📁 Manual Scan"
+- Paste URLs
 - Scan otomatis dimulai
+
+**Metode 2: CRUD Settings**
+- Dashboard → "⚙️ Settings" tab
+- Website Management section
+- Add/Edit/Delete URLs
 
 ### 🔍 Manual Scan URL Tertentu
 
-**Di Dashboard → "⚙️ Settings" Tab**
+**Di Dashboard → Sidebar → "📁 Manual Scan"**
 - Paste URL
-- Klik "📁 Manual Scan"
+- Klik scan
 - Lihat results di "Recent Threats"
 
 ### 🔄 Toggle Auto-Scan
